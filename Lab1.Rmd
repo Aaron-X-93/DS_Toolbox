@@ -1,0 +1,239 @@
+---
+title: "CSDA_Lab1"
+author: "Aaron"
+date: "9/16/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load the libraries
+```{r, include=FALSE}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(stringr)
+library(DT)
+library(gridExtra)
+```
+
+### Load the data
+```{r data, include=FALSE, echo=FALSE}
+orders <- fread("C:/Users/AS/Downloads/data/orders.csv")
+products <- fread('C:/Users/AS/Downloads/data/products.csv')
+order_products <- fread('C:/Users/AS/Downloads/data/order_products__train.csv')
+order_products_prior <- fread('C:/Users/AS/Downloads/data/order_products__prior.csv')
+aisles <- fread('C:/Users/AS/Downloads/data/aisles.csv')
+departments <- fread('C:/Users/AS/Downloads/data/departments.csv')
+```
+
+### Peek at the dataset 1
+```{r}
+kable(head(orders,10))
+kable(head(products,10))
+kable(head(order_products,10))
+kable(head(order_products_prior,10))
+kable(head(aisles,10))
+kable(head(departments,10))
+```
+
+### Peek at the dataset 2
+```{r}
+str(orders)
+str(products)
+str(order_products)
+str(order_products_prior)
+str(aisles)
+str(departments)
+```
+
+### Recode variables
+```{r}
+orders <- orders %>% mutate(order_hour_of_day = as.numeric(order_hour_of_day), 
+                            eval_set = as.factor(eval_set))
+products <- products %>% mutate(product_name = as.factor(product_name))
+aisles <- aisles %>% mutate(aisle = as.factor(aisle))
+departments <- departments %>% mutate(department = as.factor(department))
+```
+
+## The order behaivor
+
+### Hour of Day
+```{r}
+orders %>% 
+  ggplot(aes(x=order_hour_of_day)) + 
+  geom_histogram(stat="count",fill=rainbow(24))
+```
+
+### Day of Week
+```{r}
+orders %>% 
+  ggplot(aes(x=order_dow)) + 
+  geom_histogram(stat="count",fill=rainbow(7))
+```
+
+### When do they order again
+```{r}
+orders %>% 
+  ggplot(aes(x=days_since_prior_order)) + 
+  geom_histogram(stat="count",fill="blue")
+```
+
+```{r}
+order_products %>% 
+  ggplot(aes(x=days_since_prior_order)) + 
+  geom_histogram(stat="count",fill="blue")
+```
+
+### How many prior orders are there?
+```{r}
+prior_order = count(filter(orders, eval_set=="prior"), order_number)
+ggplot(data = prior_order, aes(order_number,n)) +
+  geom_line(color="blue", size=1) +
+  geom_point(color="blue", size=2)
+```
+
+### The distributions of how many items are in the orders
+```{r}
+train_1 <- order_products %>% 
+          group_by(order_id) %>% 
+          summarize(n_items_train = last(add_to_cart_order))
+prior_1 <- order_products_prior %>% 
+          group_by(order_id) %>% 
+          summarize(n_items_prior = last(add_to_cart_order))
+
+ggplot() + 
+  geom_histogram(data=train_1, aes(x=n_items_train),col="red",alpha = 0.3) +
+  geom_histogram(data=prior_1, aes(x=n_items_prior),col="blue",alpha = 0.3) +
+  coord_cartesian(xlim=c(0,80))
+```
+
+### How often do people order the same items again
+```{r}
+re_order <- order_products %>% 
+            group_by(reordered) %>% 
+            summarize(count = n()) %>% 
+  mutate(reordered = as.factor(reordered)) %>%
+  mutate(proportion = count/sum(count))
+head(re_order)
+```
+
+```{r}
+ggplot(re_order, aes(x=reordered,y=count,fill=reordered))+
+  geom_bar(stat="identity")
+```
+
+### Most Popular Products Sold
+```{r}
+tmp1 <- order_products %>%
+  left_join(products) %>%
+  group_by(product_name) %>%
+  summarize(count=n()) %>%
+  top_n(n=20, wt=count) %>%  
+  mutate(percentage=count/sum(count))
+p1 = ggplot (tmp1, aes(x=reorder(product_name,count), y=percentage)) +  
+  geom_col() + 
+  ggtitle('Products Top 20') + 
+  ylab('Percentage of Orders') +
+  theme (axis.text.x=element_text(angle=90, hjust=1, vjust=0.5),
+         axis.title.x = element_blank()) 
+p2 = ggplot (data = tmp1, aes( x= '', y=percentage )) + 
+  ggtitle('Products Top 20') + 
+  ylab('percentage.of.orders') + 
+  geom_boxplot() + 
+  xlab('Products')
+grid.arrange(p1, p2, ncol = 2)
+```
+
+### Most Popular Department Sold
+```{r}
+tmp2 <- order_products %>%
+  left_join(products) %>%
+  left_join(departments) %>%
+  group_by(department) %>%
+  summarize(count=n()) %>%
+  mutate(percentage=count/sum(count))
+p1 = ggplot (tmp2, aes(x=reorder(department,count), y=percentage)) +  
+  geom_col() + 
+  ggtitle('Departments') + 
+  ylab('Percentage of Orders') +
+  theme (axis.text.x=element_text(angle=90, hjust=1, vjust=0.5),
+         axis.title.x = element_blank()) 
+p2 = ggplot (data = tmp2, aes( x= '', y=percentage )) + 
+  ggtitle('Departments') + 
+  ylab('percentage.of.orders') + 
+  geom_boxplot() + 
+  xlab('Departments')
+grid.arrange(p1, p2, ncol = 2)
+```
+
+### Most Popular Aisles Sold
+```{r}
+tmp3 <- order_products %>%
+  left_join(products) %>%
+  left_join(aisles) %>%
+  group_by(aisle) %>%
+  summarize(count=n()) %>%
+  top_n(n=20, wt=count) %>%  
+  mutate(percentage=count/sum(count))
+p5 = ggplot (tmp3, aes(x=reorder(aisle,count), y=percentage)) +  
+  geom_col() + 
+  ggtitle('Aisles Top 20') + 
+  ylab('Percentage of Orders') +
+  theme (axis.text.x=element_text(angle=90, hjust=1, vjust=0.5),
+         axis.title.x = element_blank()) 
+p6 = ggplot (data = tmp3, aes( x= '', y=percentage )) + 
+  ggtitle('Aisles Top 20') + 
+  ylab('percentage.of.orders') + 
+  geom_boxplot() + 
+  xlab('Products')
+grid.arrange(p5, p6, ncol = 2)
+```
+
+### Top ten products ordered daily contributes between 7% to 8%.
+```{r}
+order_products_prior %>% 
+  left_join(orders) %>% left_join(products) %>%
+  group_by(order_dow, product_name) %>%
+  summarize(n=n()) %>%
+  mutate(percentage=n/sum(n)) %>%
+  top_n(10, wt=n) %>%
+  ggplot (aes(x=as.factor(order_dow), y=percentage, fill=product_name)) + 
+    geom_col() + ylab('Proprtion of Orders') + ggtitle('Daily Top 10 Products Ordered') +
+    theme(legend.position="bottom",legend.direction="horizontal")
+```
+
+### 
+```{r}
+
+```
+
+## Visualizing the Product Portfolio
+
+### 
+```{r}
+
+```
+
+### 
+```{r}
+
+```
+
+### 
+```{r}
+
+```
+
+### 
+```{r}
+
+```
+
+### 
+```{r}
+
+```
